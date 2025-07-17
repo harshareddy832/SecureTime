@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2 style="text-align: center; margin-bottom: 30px;">📊 Time Reports</h2>
+    
+    <div style="margin-bottom: 30px; display: flex; gap: 15px; align-items: end; flex-wrap: wrap;">
+        <div>
+            <label style="display: block; margin-bottom: 5px; font-weight: 600;">From Date</label>
+            <input type="date" id="date-from" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px;">
+        </div>
+        <div>
+            <label style="display: block; margin-bottom: 5px; font-weight: 600;">To Date</label>
+            <input type="date" id="date-to" style="padding: 8px; border: 1px solid #ddd; border-radius: 8px;">
+        </div>
+        <button class="btn" onclick="loadReports()">Generate Report</button>
+    </div>
+    
+    <div id="reports-content">
+        <div style="text-align: center; padding: 40px; color: #666;">
+            Select date range and generate report
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    
+    document.getElementById('date-to').value = today.toISOString().split('T')[0];
+    document.getElementById('date-from').value = weekAgo.toISOString().split('T')[0];
+});
+
+function loadReports() {
+    const dateFrom = document.getElementById('date-from').value;
+    const dateTo = document.getElementById('date-to').value;
+    
+    const params = new URLSearchParams();
+    if (dateFrom) params.append('date_from', dateFrom);
+    if (dateTo) params.append('date_to', dateTo);
+    
+    fetch(`/api/time_records?${params}`)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                displayReports(data.records);
+            } else {
+                document.getElementById('reports-content').innerHTML = '<div style="color: #dc3545;">Error: ' + data.message + '</div>';
+            }
+        });
+}
+
+function displayReports(records) {
+    const content = document.getElementById('reports-content');
+    
+    if (records.length === 0) {
+        content.innerHTML = '<div style="text-align: center; color: #666;">No records found</div>';
+        return;
+    }
+    
+    const totalHours = records.reduce((sum, r) => sum + (r.hours_worked || 0), 0);
+    
+    let html = `
+        <div style="margin-bottom: 20px; text-align: center;">
+            <h3>Total Hours: ${totalHours.toFixed(1)}h (${records.length} records)</h3>
+        </div>
+        
+        <div style="overflow-x: auto;">
+            <table style="width: 100%; border-collapse: collapse; background: white; border-radius: 12px;">
+                <thead>
+                    <tr style="background: #f8f9fa;">
+                        <th style="padding: 15px; text-align: left;">Employee</th>
+                        <th style="padding: 15px; text-align: left;">Date</th>
+                        <th style="padding: 15px; text-align: left;">Clock In</th>
+                        <th style="padding: 15px; text-align: left;">Clock Out</th>
+                        <th style="padding: 15px; text-align: left;">Hours</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
+    
+    records.forEach((record, i) => {
+        const bg = i % 2 === 0 ? '#ffffff' : '#f8f9fa';
+        const clockIn = record.clock_in ? new Date(record.clock_in).toLocaleTimeString() : '-';
+        const clockOut = record.clock_out ? new Date(record.clock_out).toLocaleTimeString() : 'Active';
+        const hours = record.hours_worked ? record.hours_worked.toFixed(2) : '-';
+        
+        html += `
+            <tr style="background: ${bg};">
+                <td style="padding: 15px;">${record.employee_name}</td>
+                <td style="padding: 15px;">${record.date}</td>
+                <td style="padding: 15px;">${clockIn}</td>
+                <td style="padding: 15px;">${clockOut}</td>
+                <td style="padding: 15px;"><strong>${hours}</strong></td>
+            </tr>
+        `;
+    });
+    
+    html += '</tbody></table></div>';
+    content.innerHTML = html;
+}
+</script>
+{% endblock %}

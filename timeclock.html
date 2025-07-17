@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2 style="text-align: center; margin-bottom: 30px;">🕐 Auto Time Clock</h2>
+    <p style="text-align: center; margin-bottom: 30px; color: #666;">
+        Simply look at the camera for 2 seconds to automatically clock in or out
+    </p>
+    
+    <div class="camera-container" id="camera-container">
+        <video id="camera-feed" class="camera-feed" autoplay muted></video>
+        
+        <div class="camera-overlay" id="camera-overlay">
+            <div style="text-align: center;">
+                <div style="font-size: 48px; margin-bottom: 15px;">📷</div>
+                <p>Click "Start Camera" to begin automatic clock</p>
+            </div>
+        </div>
+        
+        <div class="instruction-panel" id="instruction-panel" style="display: none;">
+            <div id="instruction-text">Preparing...</div>
+            <div id="countdown-display" style="font-size: 12px; margin-top: 5px; opacity: 0.8;"></div>
+        </div>
+    </div>
+    
+    <div style="text-align: center; margin: 20px 0;">
+        <button class="btn" id="start-btn" onclick="startCamera()">📷 Start Auto Clock</button>
+        <button class="btn btn-danger" id="stop-btn" onclick="stopCamera()" style="display: none;">⏹️ Stop</button>
+        <button class="btn btn-warning" id="restart-btn" onclick="restartCamera()" style="display: none;">🔄 Clock Another Person</button>
+    </div>
+    
+    <div id="result"></div>
+    
+    <!-- Info panel -->
+    <div style="background: rgba(255,255,255,0.1); padding: 20px; border-radius: 16px; margin-top: 30px;">
+        <h3 style="color: white; margin-bottom: 15px;">How Auto Clock Works:</h3>
+        <ul style="color: rgba(255,255,255,0.8); line-height: 1.6;">
+            <li><strong>Step 1:</strong> Look at the camera naturally</li>
+            <li><strong>Step 2:</strong> System verifies your identity</li>
+            <li><strong>Step 3:</strong> Hold steady for 2 seconds</li>
+            <li><strong>Step 4:</strong> Automatically clocks you in/out</li>
+            <li><strong>Step 5:</strong> Camera stops automatically</li>
+        </ul>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let socket = io();
+let localStream = null;
+let sessionActive = false;
+let frameCapturing = false;
+
+function startCamera() {
+    console.log('Starting camera...');
+    navigator.mediaDevices.getUserMedia({ 
+        video: { 
+            width: { ideal: 640 }, 
+            height: { ideal: 480 },
+            facingMode: 'user'
+        } 
+    })
+    .then(stream => {
+        localStream = stream;
+        const videoElement = document.getElementById('camera-feed');
+        videoElement.srcObject = stream;
+        
+        sessionActive = true;
+        document.getElementById('camera-overlay').style.display = 'none';
+        document.getElementById('instruction-panel').style.display = 'block';
+        document.getElementById('start-btn').style.display = 'none';
+        document.getElementById('stop-btn').style.display = 'inline-flex';
+        document.getElementById('restart-btn').style.display = 'none';
+        
+        // Clear any previous results
+        document.getElementById('result').innerHTML = '';
+        
+        // Start server session
+        socket.emit('start_session', {mode: 'timeclock'});
+        
+        // Start frame capture
+        startFrameCapture();
+    })
+    .catch(error => {
+        console.error('Camera error:', error);
+        showMessage('Camera access denied: ' + error.message, 'error');
+    });
+}
+
+function stopCamera() {
+    console.log('Stopping camera...');
+    
+    sessionActive = false;
+    frameCapturing = false;
+    
+    if (localStream) {
+        localStream.getTracks().forEach(track => {
+            track.stop();
+            console.log('Camera track stopped');
+        });
+        localStream = null;
+    }
+    
+    // Reset video element
+    const videoElement = document.getElementById('camera-feed');
+    videoElement.srcObject = null;
+    
+    // Reset UI
+    document.getElementById('camera-overlay').style.display = 'flex';
+    document.getElementById('instruction-panel').style.display = 'none';
+    document.getElementById('start-btn').style.display = 'inline-flex';
+    document.getElementById('stop-btn').style.display = 'none';
+    document.getElementById('restart-btn').style.display = 'none';
+    
+    console.log('Camera fully stopped');
+}
+
+function restartCamera() {
+    console.log('Restarting camera for another person...');
+    
+    // Clear results
+    document.getElementById('result').innerHTML = '';
+    
+    // Hide restart button
+    document.getElementById('restart-btn').style.display = 'none';
+    
+    // Restart the camera
+    startCamera();
+}
+
+function startFrameCapture() {
+    const video = document.getElementById('camera-feed');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    frameCapturing = true;
+    
+    function captureFrame() {
+        if (!sessionActive || !frameCapturing) {
+            console.log('Frame capture stopped');
+            return;
+        }
+        
+        if (video.readyState >= 2) { // Video is loaded
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            ctx.drawImage(video, 0, 0);
+            
+            const frame = canvas.toDataURL('image/jpeg', 0.8);
+            socket.emit('video_frame', { frame: frame });
+        }
+        
+        // Continue capturing if session is active
+        if (sessionActive && frameCapturing) {
+            setTimeout(captureFrame, 100); // 10 FPS
+        }
+    }
+    
+    // Start capturing when video is ready
+    if (video.readyState >= 2) {
+        captureFrame();
+    } else {
+        video.addEventListener('loadeddata', captureFrame, { once: true });
+    }
+}
+
+function showMessage(message, type = 'info', duration = 5000) {
+    const resultDiv = document.getElementById('result');
+    let bgColor, icon;
+    
+    switch (type) {
+        case 'success':
+            bgColor = 'linear-gradient(135deg, #28a745, #20c997)';
+            icon = '✅';
+            break;
+        case 'error':
+            bgColor = 'linear-gradient(135deg, #dc3545, #e83e8c)';
+            icon = '❌';
+            break;
+        default:
+            bgColor = 'linear-gradient(135deg, #667eea, #764ba2)';
+            icon = 'ℹ️';
+    }
+    
+    resultDiv.innerHTML = `
+        <div style="background: ${bgColor}; color: white; padding: 20px; border-radius: 16px; text-align: center; margin-top: 20px;">
+            <p>${icon} ${message}</p>
+        </div>
+    `;
+    
+    // Auto-clear after duration
+    setTimeout(() => {
+        if (resultDiv.innerHTML.includes(message)) {
+            resultDiv.innerHTML = '';
+        }
+    }, duration);
+}
+
+// Socket event handlers
+socket.on('connect', function() {
+    console.log('Connected to server');
+});
+
+socket.on('disconnect', function() {
+    console.log('Disconnected from server');
+    stopCamera();
+});
+
+socket.on('session_started', function(data) {
+    console.log('Session started:', data);
+    sessionActive = true;
+});
+
+socket.on('frame_analysis', function(data) {
+    if (!sessionActive) return;
+    
+    // Update instruction text
+    document.getElementById('instruction-text').textContent = data.instruction;
+    
+    // Handle countdown display
+    const countdownEl = document.getElementById('countdown-display');
+    if (data.countdown > 0) {
+        countdownEl.textContent = `Auto clock in ${data.countdown.toFixed(1)}s`;
+        countdownEl.style.display = 'block';
+    } else {
+        countdownEl.style.display = 'none';
+    }
+    
+    // Update instruction panel color based on status
+    const panel = document.getElementById('instruction-panel');
+    if (data.liveness_verified) {
+        if (data.recognition_result && data.recognition_result.name !== 'Unknown') {
+            if (data.auto_clock_ready) {
+                panel.style.background = 'rgba(40,167,69,0.9)'; // Green for processing
+            } else if (data.countdown > 0) {
+                panel.style.background = 'rgba(255,193,7,0.9)'; // Yellow for countdown
+            } else {
+                panel.style.background = 'rgba(23,162,184,0.9)'; // Blue for recognized
+            }
+        } else {
+            panel.style.background = 'rgba(220,53,69,0.9)'; // Red for unknown
+        }
+    } else {
+        panel.style.background = 'rgba(0,0,0,0.8)'; // Default dark
+    }
+});
+
+socket.on('auto_clock_result', function(data) {
+    console.log('Auto clock result received:', data);
+    
+    const resultDiv = document.getElementById('result');
+    
+    if (data.success) {
+        const actionText = data.action_display || (data.action === 'clock_in' ? 'Clock In' : 'Clock Out');
+        const icon = data.action === 'clock_in' ? '🕐' : '🕔';
+        const timestamp = data.timestamp || new Date().toLocaleTimeString();
+        
+        let statusText = '';
+        if (data.details) {
+            if (data.action === 'clock_out' && data.details.hours_so_far) {
+                statusText = `<p style="margin: 10px 0;">Worked ${data.details.hours_so_far} hours today</p>`;
+            } else if (data.action === 'clock_in') {
+                statusText = '<p style="margin: 10px 0;">Have a productive day!</p>';
+            }
+        }
+        
+        resultDiv.innerHTML = `
+            <div style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 30px; border-radius: 16px; text-align: center; margin-top: 20px; animation: slideIn 0.5s ease;">
+                <div style="font-size: 48px; margin-bottom: 15px;">${icon}</div>
+                <h3 style="margin-bottom: 15px;">${actionText} Successful!</h3>
+                <p style="margin: 15px 0; font-size: 20px; font-weight: bold;">${data.employee}</p>
+                <p style="margin: 10px 0; font-size: 16px;">Time: ${timestamp}</p>
+                <p style="margin: 10px 0;">Confidence: ${data.confidence}%</p>
+                ${statusText}
+                <p style="font-size: 14px; opacity: 0.8; margin-top: 20px;">Camera stopped automatically</p>
+            </div>
+        `;
+        
+        // Show restart button for clocking another person
+        setTimeout(() => {
+            document.getElementById('restart-btn').style.display = 'inline-flex';
+        }, 1000);
+        
+    } else {
+        resultDiv.innerHTML = `
+            <div style="background: linear-gradient(135deg, #dc3545, #e83e8c); color: white; padding: 25px; border-radius: 16px; text-align: center; margin-top: 20px;">
+                <div style="font-size: 48px; margin-bottom: 15px;">❌</div>
+                <h3 style="margin-bottom: 15px;">Clock Action Failed</h3>
+                <p>${data.message}</p>
+                <p style="font-size: 14px; opacity: 0.8; margin-top: 15px;">Please try again</p>
+            </div>
+        `;
+    }
+});
+
+socket.on('session_stopped', function(data) {
+    console.log('Session stopped by server:', data);
+    sessionActive = false;
+    frameCapturing = false;
+    stopCamera();
+});
+
+socket.on('session_restarted', function() {
+    console.log('Session restarted');
+    sessionActive = true;
+    frameCapturing = true;
+});
+
+socket.on('error', function(data) {
+    console.error('Socket error:', data);
+    showMessage('Error: ' + data.message, 'error');
+});
+
+// Clean up on page unload
+window.addEventListener('beforeunload', function() {
+    if (sessionActive) {
+        stopCamera();
+    }
+});
+
+// Add CSS animation
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideIn {
+        from {
+            opacity: 0;
+            transform: translateY(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    #restart-btn {
+        animation: fadeIn 0.5s ease;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+`;
+document.head.appendChild(style);
+</script>
+{% endblock %}

@@ -1,0 +1,158 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2 style="text-align: center; margin-bottom: 30px;">📷 Add Employee with Camera</h2>
+    
+    <div id="name-input" style="text-align: center; margin-bottom: 30px;">
+        <input type="text" id="employee-name" placeholder="Enter employee name" 
+               style="padding: 15px; font-size: 16px; border: 2px solid #ddd; border-radius: 12px; width: 300px;">
+        <br><br>
+        <button class="btn" onclick="startRegistration()">📷 Start Camera Registration</button>
+    </div>
+    
+    <div class="camera-container" id="camera-container" style="display: none;">
+        <video id="camera-feed" class="camera-feed" autoplay muted></video>
+        
+        <div class="instruction-panel" id="instruction-panel">
+            <div id="instruction-text">Preparing camera...</div>
+            <div id="progress-text" style="font-size: 12px; margin-top: 5px;">Step 1 of 4</div>
+        </div>
+    </div>
+    
+    <div id="camera-controls" style="text-align: center; margin: 20px 0; display: none;">
+        <button class="btn btn-success" id="capture-btn" onclick="capturePhoto()" disabled>
+            📸 Capture Photo
+        </button>
+        <button class="btn btn-danger" onclick="cancelRegistration()">❌ Cancel</button>
+    </div>
+    
+    <div id="result"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let socket = io();
+let localStream = null;
+let registrationActive = false;
+
+function startRegistration() {
+    const employeeName = document.getElementById('employee-name').value.trim();
+    if (!employeeName) {
+        alert('Please enter employee name');
+        return;
+    }
+    
+    navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
+        .then(stream => {
+            localStream = stream;
+            document.getElementById('camera-feed').srcObject = stream;
+            
+            registrationActive = true;
+            document.getElementById('name-input').style.display = 'none';
+            document.getElementById('camera-container').style.display = 'block';
+            document.getElementById('camera-controls').style.display = 'block';
+            
+            socket.emit('start_session', {
+                mode: 'registration',
+                employee_name: employeeName
+            });
+            
+            startFrameCapture();
+        })
+        .catch(error => {
+            alert('Camera access denied: ' + error.message);
+        });
+}
+
+function startFrameCapture() {
+    const video = document.getElementById('camera-feed');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    function captureFrame() {
+        if (!registrationActive) return;
+        
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        
+        const frame = canvas.toDataURL('image/jpeg', 0.8);
+        socket.emit('video_frame', { frame: frame });
+        
+        setTimeout(captureFrame, 100);
+    }
+    
+    video.addEventListener('loadedmetadata', captureFrame);
+}
+
+function capturePhoto() {
+    const video = document.getElementById('camera-feed');
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+    
+    const frame = canvas.toDataURL('image/jpeg', 0.8);
+    socket.emit('capture_registration_photo', { frame: frame });
+}
+
+function cancelRegistration() {
+    if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+    }
+    
+    registrationActive = false;
+    document.getElementById('name-input').style.display = 'block';
+    document.getElementById('camera-container').style.display = 'none';
+    document.getElementById('camera-controls').style.display = 'none';
+    document.getElementById('employee-name').value = '';
+}
+
+socket.on('registration_ready', function(data) {
+    document.getElementById('capture-btn').disabled = false;
+    document.getElementById('instruction-text').textContent = 
+        `Good! Face detected (Quality: ${Math.round(data.face_quality * 100)}%)`;
+});
+
+socket.on('registration_next_pose', function(data) {
+    document.getElementById('instruction-text').textContent = data.instruction;
+    document.getElementById('progress-text').textContent = `Step ${data.completed + 1} of ${data.total}`;
+    document.getElementById('capture-btn').disabled = false;
+});
+
+socket.on('registration_complete', function(data) {
+    document.getElementById('instruction-text').textContent = 'All photos captured! Processing...';
+    document.getElementById('capture-btn').disabled = true;
+    socket.emit('complete_registration', {});
+});
+
+socket.on('registration_success', function(data) {
+    document.getElementById('result').innerHTML = `
+        <div style="background: linear-gradient(135deg, #28a745, #20c997); color: white; padding: 30px; border-radius: 16px; text-align: center;">
+            <h3>✅ Registration Successful!</h3>
+            <p>${data.employee_name} added with ${data.photos_count} photos</p>
+            <div style="margin-top: 20px;">
+                <a href="/employees" class="btn" style="background: rgba(255,255,255,0.2);">View Employees</a>
+            </div>
+        </div>
+    `;
+    
+    setTimeout(() => {
+        window.location.href = '/employees';
+    }, 3000);
+});
+
+socket.on('registration_error', function(data) {
+    document.getElementById('result').innerHTML = `
+        <div style="background: linear-gradient(135deg, #dc3545, #e83e8c); color: white; padding: 20px; border-radius: 16px; text-align: center;">
+            <h3>❌ Registration Failed</h3>
+            <p>${data.message}</p>
+        </div>
+    `;
+});
+</script>
+{% endblock %}

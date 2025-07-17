@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <h2 style="text-align: center; margin-bottom: 30px;">✏️ Edit {{ employee_name }}</h2>
+    
+    <div style="margin-bottom: 30px;">
+        <h3>Photos</h3>
+        <div id="photos-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; margin-top: 20px;">
+            Loading photos...
+        </div>
+    </div>
+    
+    <div style="text-align: center;">
+        <a href="/employees" class="btn">← Back to Employees</a>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const employeeName = "{{ employee_name }}";
+
+function loadPhotos() {
+    fetch('/api/employees')
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                const employee = data.employees.find(emp => emp.name === employeeName);
+                if (employee && employee.images) {
+                    let html = '';
+                    employee.images.forEach(image => {
+                        html += `
+                            <div style="text-align: center; border: 1px solid #ddd; border-radius: 8px; padding: 10px;">
+                                <img src="/api/employee_photo/${employeeName}/${image}" 
+                                     style="width: 100%; height: 120px; object-fit: cover; border-radius: 8px; margin-bottom: 10px;">
+                                <button class="btn btn-danger" style="font-size: 12px; padding: 6px 12px;" 
+                                        onclick="deletePhoto('${image}')">🗑️ Delete</button>
+                            </div>
+                        `;
+                    });
+                    document.getElementById('photos-grid').innerHTML = html;
+                } else {
+                    document.getElementById('photos-grid').innerHTML = '<p>No photos found</p>';
+                }
+            }
+        });
+}
+
+function deletePhoto(filename) {
+    if (confirm('Delete this photo?')) {
+        fetch(`/api/delete_employee_photo/${employeeName}/${filename}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    loadPhotos();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            });
+    }
+}
+
+loadPhotos();
+</script>
+{% endblock %}

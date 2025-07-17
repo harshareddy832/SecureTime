@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px;">
+        <h2>👥 Employees</h2>
+        <a href="/add_employee" class="btn">+ Add Employee</a>
+    </div>
+    
+    <div id="employees-list">Loading employees...</div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loadEmployees() {
+    fetch('/api/employees')
+        .then(r => r.json())
+        .then(data => {
+            const container = document.getElementById('employees-list');
+            
+            if (data.success && data.employees.length > 0) {
+                let html = '<div class="grid">';
+                
+                data.employees.forEach(emp => {
+                    const statusClass = emp.status === 'clocked_in' ? 'color: #28a745' : 'color: #666';
+                    const statusText = emp.status === 'clocked_in' ? 
+                        `🕐 Clocked In (${emp.details.hours_so_far}h)` : 
+                        '🕔 Not Clocked In';
+                    
+                    const thumbnail = emp.thumbnail ? 
+                        `<img src="${emp.thumbnail}" style="width: 80px; height: 80px; border-radius: 8px; object-fit: cover; margin-bottom: 10px;">` :
+                        `<div style="width: 80px; height: 80px; background: linear-gradient(135deg, #667eea, #764ba2); border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-size: 24px; margin: 0 auto 10px;">${emp.name[0].toUpperCase()}</div>`;
+                    
+                    html += `
+                        <div class="employee-card">
+                            ${thumbnail}
+                            <h3 style="margin-bottom: 5px;">${emp.name}</h3>
+                            <p style="color: #666; margin-bottom: 10px;">${emp.image_count} photos</p>
+                            <p style="${statusClass}; font-size: 14px; margin-bottom: 15px;">${statusText}</p>
+                            <div style="display: flex; gap: 10px; justify-content: center;">
+                                <a href="/edit_employee/${emp.name}" class="btn" style="font-size: 12px; padding: 8px 16px;">✏️ Edit</a>
+                                <button class="btn btn-danger" style="font-size: 12px; padding: 8px 16px;" onclick="deleteEmployee('${emp.name}')">🗑️ Delete</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                
+                html += '</div>';
+                container.innerHTML = html;
+            } else {
+                container.innerHTML = `
+                    <div style="text-align: center; padding: 60px; color: #666;">
+                        <div style="font-size: 64px; margin-bottom: 20px; opacity: 0.3;">👥</div>
+                        <h3 style="margin-bottom: 10px;">No Employees Yet</h3>
+                        <p style="margin-bottom: 30px;">Add employees to start using SecureTime Pro</p>
+                        <a href="/add_employee" class="btn">Add First Employee</a>
+                    </div>
+                `;
+            }
+        })
+        .catch(error => {
+            document.getElementById('employees-list').innerHTML = '<div style="color: #dc3545; text-align: center;">Error loading employees</div>';
+        });
+}
+
+function deleteEmployee(employeeName) {
+    if (confirm(`Are you sure you want to delete ${employeeName}?`)) {
+        fetch(`/api/delete_employee/${employeeName}`, { method: 'DELETE' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    loadEmployees();
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            });
+    }
+}
+
+loadEmployees();
+setInterval(loadEmployees, 10000);
+</script>
+{% endblock %}
