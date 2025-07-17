@@ -171,10 +171,6 @@ def debug_employee(employee_name):
 - Use proper access controls in production
 - Consider encryption for sensitive environments
 
-## License
-
-MIT License - see LICENSE file
-
 ## Technology Stack
 
 - **Backend:** Flask, Flask-SocketIO
